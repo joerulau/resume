@@ -1,10 +1,13 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Button, Affix, Upload, Spin, message, Alert, Modal } from 'antd';
-import { RcFile } from 'antd/lib/upload';
+import type { RcFile } from 'antd/lib/upload';
 import _ from 'lodash-es';
-import { getLanguage, getLocale } from '@/locale';
+import qs from 'query-string';
+import jsonUrl from 'json-url';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { getLanguage } from '@/i18n';
 import { useModeSwitcher } from '@/hooks/useModeSwitcher';
-import { getDefaultTitleNameMap } from '@/datas/constant';
+import { getDefaultTitleNameMap } from '@/data/constant';
 import { getSearchObj } from '@/helpers/location';
 import { customAssign } from '@/helpers/customAssign';
 import { copyToClipboard } from '@/helpers/copy-to-board';
@@ -14,12 +17,15 @@ import { getConfig, saveToLocalStorage } from '@/helpers/store-to-local';
 import { fetchResume } from '@/helpers/fetch-resume';
 import { Drawer } from './Drawer';
 import { Resume } from './Resume';
-import { ResumeConfig, ThemeConfig } from './types';
+import type { ResumeConfig, ThemeConfig } from './types';
+
 import './index.less';
+
+const codec = jsonUrl('lzma');
 
 export const Page: React.FC = () => {
   const lang = getLanguage();
-  const i18n = getLocale();
+  const intl = useIntl();
   const user = getSearchObj().user || 'visiky';
 
   const [, mode, changeMode] = useModeSwitcher({});
@@ -28,23 +34,48 @@ export const Page: React.FC = () => {
   const query = getSearchObj();
   const [config, setConfig] = useState<ResumeConfig>();
   const [loading, updateLoading] = useState<boolean>(true);
-  const [template, updateTemplate] = useState<string>('template1');
   const [theme, setTheme] = useState<ThemeConfig>({
     color: '#2f5785',
     tagColor: '#8bc34a',
   });
 
-  const changeConfig = (v: Partial<ResumeConfig>) => {
-    setConfig(
-      _.assign({}, { titleNameMap: getDefaultTitleNameMap({ i18n }) }, v)
-    );
+  useEffect(() => {
+    const {
+      pathname,
+      hash: currentHash,
+      search: currentSearch,
+    } = window.location;
+    const hash = currentHash === '#/' ? '' : currentHash;
+    const searchObj = qs.parse(currentSearch);
+    if (!searchObj.template) {
+      const search = qs.stringify({
+        template: config?.template || 'template1',
+        ...qs.parse(currentSearch),
+      });
+      window.location.href = `${pathname}?${search}${hash}`;
+    }
+  }, [config]);
+
+  const updateTemplate = (value: string) => {
+    const {
+      pathname,
+      hash: currentHash,
+      search: currentSearch,
+    } = window.location;
+    const hash = currentHash === '#/' ? '' : currentHash;
+    const search = qs.stringify({
+      ...qs.parse(currentSearch),
+      template: value,
+    });
+
+    window.location.href = `${pathname}?${search}${hash}`;
   };
 
-  useEffect(() => {
-    if (query.template) {
-      updateTemplate(query.template as string);
-    }
-  }, []);
+  const changeConfig = (v: Partial<ResumeConfig>) => {
+    setConfig(
+      _.assign({}, { titleNameMap: getDefaultTitleNameMap({ intl }) }, v)
+    );
+  };
 
   useEffect(() => {
     const user = (query.user || '') as string;
@@ -67,23 +98,31 @@ export const Page: React.FC = () => {
         .then(data => store(data))
         .catch(() => {
           Modal.info({
-            title: i18n.get('获取简历信息失败'),
+            title: <FormattedMessage id="获取简历信息失败" />,
             content: (
               <div>
                 请检查用户名 {user} 是否正确或者简历信息是否在
                 <a href={link} target="_blank">{`${link}/resume.json`}</a>下
               </div>
             ),
-            okText: i18n.get('进入在线编辑'),
+            okText: <FormattedMessage id="进入在线编辑" />, // intl.formatMessage({ id: '进入在线编辑' }),
             onOk: () => {
               changeMode('edit');
             },
           });
         });
     } else {
-      getConfig(lang, branch, user).then(data => store(data));
+      if (query.data) {
+        codec.decompress(query.data).then(data => {
+          store(JSON.parse(data));
+        });
+      } else {
+        getConfig(lang, branch, user).then(data => {
+          store(data);
+        });
+      }
     }
-  }, [lang, query.user, query.branch]);
+  }, [lang, query.user, query.branch, query.data]);
 
   const onConfigChange = useCallback(
     (v: Partial<ResumeConfig>) => {
@@ -103,7 +142,9 @@ export const Page: React.FC = () => {
 
   useEffect(() => {
     if (getDevice() === 'mobile') {
-      message.info(i18n.get('移动端只提供查看功能，在线制作请前往 PC 端'));
+      message.info(
+        intl.formatMessage({ id: '移动端只提供查看功能，在线制作请前往 PC 端' })
+      );
     }
   }, []);
 
@@ -144,15 +185,17 @@ export const Page: React.FC = () => {
             onThemeChange(newConfig.theme);
             onConfigChange(_.omit(newConfig, 'theme'));
           }
-          message.success(i18n.get('上传配置已应用'));
+          message.success(intl.formatMessage({ id: '上传配置已应用' }));
         } catch (err) {
-          message.error(i18n.get('上传文件有误，请重新上传'));
+          message.error(intl.formatMessage({ id: '上传文件有误，请重新上传' }));
         }
       };
       reader.readAsText(file);
     } else {
       message.error(
-        i18n.get('您当前浏览器不支持 FileReader，建议使用谷歌浏览器')
+        intl.formatMessage({
+          id: '您当前浏览器不支持 FileReader，建议使用谷歌浏览器',
+        })
       );
     }
     return false;
@@ -160,7 +203,7 @@ export const Page: React.FC = () => {
 
   function getConfigJson() {
     let fullConfig = config;
-    if (lang !== 'zh_CN') {
+    if (lang !== 'zh-CN') {
       fullConfig = customAssign({}, originalConfig?.current, {
         locales: { [lang]: config },
       });
@@ -176,6 +219,17 @@ export const Page: React.FC = () => {
     exportDataToLocal(getConfigJson(), `${user}'s resume info`);
   };
 
+  const handleSharing = () => {
+    const fullConfig = getConfigJson();
+    codec.compress(fullConfig).then(data => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('data', data);
+
+      console.log('sharing url', url.toString());
+      copyToClipboard(url.toString());
+    });
+  };
+
   return (
     <React.Fragment>
       <Spin spinning={loading}>
@@ -184,10 +238,12 @@ export const Page: React.FC = () => {
             showIcon={false}
             message={
               <span>
-                {i18n.get(`编辑之后，请及时存储个人信息到个人仓库中。`)}
+                {intl.formatMessage({
+                  id: `编辑之后，请及时存储个人信息到个人仓库中。`,
+                })}
                 <span>
                   <span style={{ marginRight: '4px' }}>
-                    👉 {!query.user && i18n.get('参考：')}
+                    👉 {!query.user && intl.formatMessage({ id: '参考：' })}
                   </span>
                   <span
                     style={{
@@ -215,7 +271,11 @@ export const Page: React.FC = () => {
         )}
         <div className="page">
           {config && (
-            <Resume value={config} theme={theme} template={template} />
+            <Resume
+              value={config}
+              theme={theme}
+              template={query.template || 'template1'}
+            />
           )}
           {mode === 'edit' && (
             <React.Fragment>
@@ -226,28 +286,30 @@ export const Page: React.FC = () => {
                     onValueChange={onConfigChange}
                     theme={theme}
                     onThemeChange={onThemeChange}
-                    template={template}
+                    // @ts-ignore
+                    template={query.template || 'template1'}
                     onTemplateChange={updateTemplate}
-                    key={'1'}
                   />
-                  <Button type="primary" onClick={copyConfig} key="3">
-                    {i18n.get('复制配置')}
+                  <Button type="primary" onClick={copyConfig}>
+                    <FormattedMessage id="复制配置" />
                   </Button>
-                  <Button type="primary" onClick={exportConfig} key="3">
-                    {i18n.get('保存简历')}
+                  <Button type="primary" onClick={exportConfig}>
+                    <FormattedMessage id="保存简历" />
                   </Button>
                   <Upload
                     accept=".json"
                     showUploadList={false}
                     beforeUpload={importConfig}
-                    key={'2'}
                   >
                     <Button className="btn-upload">
-                      {i18n.get('导入配置')}
+                      <FormattedMessage id="导入配置" />
                     </Button>
                   </Upload>
-                  <Button type="primary" onClick={() => window.print()} key="4">
-                    {i18n.get('PDF 下载')}
+                  <Button type="primary" onClick={() => window.print()}>
+                    <FormattedMessage id="下载 PDF" />
+                  </Button>
+                  <Button type="primary" onClick={handleSharing}>
+                    <FormattedMessage id="分享" />
                   </Button>
                 </Button.Group>
               </Affix>

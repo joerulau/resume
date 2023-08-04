@@ -17,7 +17,7 @@ export type ResumeConfig = {
     zhihu?: string;
     /** 工作经验 xx 年 */
     workExpYear?: string;
-    /** 工作地 */
+    /** 期望工作地 */
     workPlace?: string;
     /** 职位 */
     positionTitle?: string;
@@ -105,6 +105,8 @@ export type ResumeConfig = {
   locales?: {
     [key: string]: ResumeConfig;
   };
+
+  template?: string;
 };
 
 /**
@@ -113,6 +115,6 @@ export type ResumeConfig = {
 export type ThemeConfig = {
   /** 主题色 */
   color: string;
-  /** tag 标签色 */
+  /** Tag 标签色 */
   tagColor: string;
 };
